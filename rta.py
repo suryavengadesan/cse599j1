@@ -16,6 +16,16 @@ class ConversationSimulator:
         self.client = anthropic.Anthropic(api_key=self.api_key)
         self.model = "claude-sonnet-4-5-20250929"
         self.survey_results = []  # Stores all survey responses
+        self.token_usage = {
+            "total_input_tokens": 0,
+            "total_output_tokens": 0,
+            "total_tokens": 0,
+            "api_calls": [],  # Detailed log of each API call
+            "by_type": {
+                "survey": {"input": 0, "output": 0},
+                "conversation": {"input": 0, "output": 0}
+            }
+        }
         
     def create_persona_prompt(self, persona: Dict[str, str]) -> str:
         """Create a system prompt for a persona."""
@@ -98,6 +108,9 @@ CRITICAL INSTRUCTIONS:
                 }]
             )
             
+            # Track token usage
+            self._track_token_usage(message, "survey", persona['name'], q_id)
+            
             answer = message.content[0].text.strip().upper()
             # Clean up response to just get the letter
             if len(answer) > 1:
@@ -135,7 +148,48 @@ CRITICAL INSTRUCTIONS:
             messages=conversation_history
         )
         
+        # Track token usage
+        self._track_token_usage(response, "conversation", persona['name'])
+        
         return response.content[0].text
+    
+    def _track_token_usage(self, message, call_type: str, persona_name: str, question_id: str = None):
+        """
+        Track token usage from API responses.
+        
+        Args:
+            message: The API response object
+            call_type: "survey" or "conversation"
+            persona_name: Name of the persona
+            question_id: Optional question ID for survey calls
+        """
+        input_tokens = message.usage.input_tokens
+        output_tokens = message.usage.output_tokens
+        total = input_tokens + output_tokens
+        
+        # Update totals
+        self.token_usage["total_input_tokens"] += input_tokens
+        self.token_usage["total_output_tokens"] += output_tokens
+        self.token_usage["total_tokens"] += total
+        
+        # Update by type
+        self.token_usage["by_type"][call_type]["input"] += input_tokens
+        self.token_usage["by_type"][call_type]["output"] += output_tokens
+        
+        # Log individual call
+        call_log = {
+            "timestamp": datetime.now().isoformat(),
+            "type": call_type,
+            "persona": persona_name,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": total
+        }
+        
+        if question_id:
+            call_log["question_id"] = question_id
+        
+        self.token_usage["api_calls"].append(call_log)
     
     def run_conversation_with_survey(
         self,
@@ -300,6 +354,50 @@ CRITICAL INSTRUCTIONS:
     def get_all_survey_results(self) -> List[Dict]:
         """Return all stored survey results."""
         return self.survey_results
+    
+    def get_token_usage_summary(self) -> Dict:
+        """Return a summary of token usage."""
+        return {
+            "total_input_tokens": self.token_usage["total_input_tokens"],
+            "total_output_tokens": self.token_usage["total_output_tokens"],
+            "total_tokens": self.token_usage["total_tokens"],
+            "by_type": self.token_usage["by_type"],
+            "total_api_calls": len(self.token_usage["api_calls"])
+        }
+    
+    def get_detailed_token_usage(self) -> Dict:
+        """Return detailed token usage including all API calls."""
+        return self.token_usage
+    
+    def calculate_estimated_cost(self) -> Dict:
+        """
+        Calculate estimated cost based on Claude Sonnet 4.5 pricing.
+        $3 per million input tokens, $15 per million output tokens.
+        """
+        input_cost = (self.token_usage["total_input_tokens"] / 1_000_000) * 3.0
+        output_cost = (self.token_usage["total_output_tokens"] / 1_000_000) * 15.0
+        total_cost = input_cost + output_cost
+        
+        return {
+            "input_cost_usd": round(input_cost, 4),
+            "output_cost_usd": round(output_cost, 4),
+            "total_cost_usd": round(total_cost, 4),
+            "input_tokens": self.token_usage["total_input_tokens"],
+            "output_tokens": self.token_usage["total_output_tokens"]
+        }
+    
+    def reset_token_tracking(self):
+        """Reset token usage tracking."""
+        self.token_usage = {
+            "total_input_tokens": 0,
+            "total_output_tokens": 0,
+            "total_tokens": 0,
+            "api_calls": [],
+            "by_type": {
+                "survey": {"input": 0, "output": 0},
+                "conversation": {"input": 0, "output": 0}
+            }
+        }
 
 
 # Example usage
@@ -401,7 +499,29 @@ if __name__ == "__main__":
     final_results = {
         "conversation_and_surveys": results,
         "change_analysis": changes,
-        "all_survey_data": sim.get_all_survey_results()
+        "all_survey_data": sim.get_all_survey_results(),
+        "token_usage": sim.get_detailed_token_usage(),
+        "cost_estimate": sim.calculate_estimated_cost()
     }
     
     sim.export_results(final_results)
+    
+    # Print token usage summary
+    print("\n" + "="*60)
+    print("TOKEN USAGE SUMMARY")
+    print("="*60 + "\n")
+    
+    summary = sim.get_token_usage_summary()
+    cost = sim.calculate_estimated_cost()
+    
+    print(f"Total API Calls: {summary['total_api_calls']}")
+    print(f"Total Input Tokens: {summary['total_input_tokens']:,}")
+    print(f"Total Output Tokens: {summary['total_output_tokens']:,}")
+    print(f"Total Tokens: {summary['total_tokens']:,}")
+    print(f"\nBy Type:")
+    print(f"  Survey - Input: {summary['by_type']['survey']['input']:,}, Output: {summary['by_type']['survey']['output']:,}")
+    print(f"  Conversation - Input: {summary['by_type']['conversation']['input']:,}, Output: {summary['by_type']['conversation']['output']:,}")
+    print(f"\nEstimated Cost:")
+    print(f"  Input: ${cost['input_cost_usd']:.4f}")
+    print(f"  Output: ${cost['output_cost_usd']:.4f}")
+    print(f"  Total: ${cost['total_cost_usd']:.4f}")
