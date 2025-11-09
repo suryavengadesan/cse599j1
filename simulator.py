@@ -5,6 +5,10 @@ import json
 from datetime import datetime
 import statistics
 from collections import defaultdict
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 class ConversationSimulator:
     """
@@ -13,8 +17,24 @@ class ConversationSimulator:
     """
     
     def __init__(self, api_key: str = None):
-        """Initialize the simulator with API key."""
-        self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
+        """
+        Initialize the simulator with API key.
+        
+        Args:
+            api_key: Optional API key. If not provided, will look for ANTHROPIC_API_KEY 
+                    in environment variables (including .env file).
+        """
+        # Try to get API key from parameter, then environment
+        self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
+        
+        if not self.api_key:
+            raise ValueError(
+                "No API key found. Please either:\n"
+                "1. Create a .env file with: ANTHROPIC_API_KEY=your-key-here\n"
+                "2. Set environment variable: export ANTHROPIC_API_KEY=your-key-here\n"
+                "3. Pass api_key parameter when initializing ConversationSimulator()"
+            )
+        
         self.client = anthropic.Anthropic(api_key=self.api_key)
         self.model = "claude-sonnet-4-5-20250929"
         self.survey_results = []  # Stores all survey responses
@@ -741,7 +761,7 @@ if __name__ == "__main__":
     }
     
     # Initialize simulator
-    sim = ConversationSimulator(api_key='REMOVED_TOKEN')
+    sim = ConversationSimulator()
     
     # Check if running multiple experiments or single
     if args.num_experiments > 1:
