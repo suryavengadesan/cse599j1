@@ -3,6 +3,8 @@ import os
 from typing import List, Dict, Tuple
 import json
 from datetime import datetime
+import statistics
+from collections import defaultdict
 
 class ConversationSimulator:
     """
@@ -26,6 +28,7 @@ class ConversationSimulator:
                 "conversation": {"input": 0, "output": 0}
             }
         }
+        self.experiments = []  # Store all experiment results
         
     def create_persona_prompt(self, persona: Dict[str, str]) -> str:
         """Create a system prompt for a persona."""
@@ -398,10 +401,284 @@ CRITICAL INSTRUCTIONS:
                 "conversation": {"input": 0, "output": 0}
             }
         }
+    
+    def run_multiple_experiments(
+        self,
+        persona_a: Dict[str, str],
+        persona_b: Dict[str, str],
+        survey: Dict[str, any],
+        surveyed_persona: str,
+        initial_message: str,
+        num_experiments: int = 10,
+        num_turns: int = 5,
+        verbose: bool = False
+    ) -> List[Dict[str, any]]:
+        """
+        Run multiple conversation experiments back-to-back.
+        
+        Args:
+            persona_a: First persona configuration
+            persona_b: Second persona configuration
+            survey: Survey configuration
+            surveyed_persona: Which persona takes survey ("a" or "b")
+            initial_message: Starting message
+            num_experiments: Number of experiments to run
+            num_turns: Number of turns per conversation
+            verbose: Print each conversation in detail
+            
+        Returns:
+            List of all experiment results
+        """
+        print(f"\n{'='*60}")
+        print(f"RUNNING {num_experiments} EXPERIMENTS")
+        print(f"{'='*60}\n")
+        
+        all_results = []
+        
+        for i in range(num_experiments):
+            print(f"[Experiment {i+1}/{num_experiments}] Running...")
+            
+            # Reset token tracking for this experiment
+            experiment_start_tokens = {
+                "input": self.token_usage["total_input_tokens"],
+                "output": self.token_usage["total_output_tokens"]
+            }
+            
+            # Run single experiment
+            result = self.run_conversation_with_survey(
+                persona_a=persona_a,
+                persona_b=persona_b,
+                survey=survey,
+                surveyed_persona=surveyed_persona,
+                initial_message=initial_message,
+                num_turns=num_turns,
+                verbose=verbose
+            )
+            
+            # Calculate tokens used in this experiment
+            experiment_tokens = {
+                "input": self.token_usage["total_input_tokens"] - experiment_start_tokens["input"],
+                "output": self.token_usage["total_output_tokens"] - experiment_start_tokens["output"]
+            }
+            experiment_tokens["total"] = experiment_tokens["input"] + experiment_tokens["output"]
+            
+            # Analyze changes
+            changes = self.analyze_survey_changes(result['pre_survey'], result['post_survey'])
+            
+            # Store experiment result with metadata
+            experiment_result = {
+                "experiment_id": i + 1,
+                "timestamp": datetime.now().isoformat(),
+                "result": result,
+                "changes": changes,
+                "tokens": experiment_tokens
+            }
+            
+            all_results.append(experiment_result)
+            self.experiments.append(experiment_result)
+            
+            print(f"[Experiment {i+1}/{num_experiments}] Complete - Changed answers: {changes['changed_answers']}/{changes['total_questions']}, Tokens: {experiment_tokens['total']}\n")
+        
+        return all_results
+    
+    def calculate_summary_statistics(self, experiments: List[Dict[str, any]] = None) -> Dict[str, any]:
+        """
+        Calculate summary statistics across multiple experiments.
+        
+        Args:
+            experiments: List of experiment results (uses self.experiments if None)
+            
+        Returns:
+            Dictionary with summary statistics
+        """
+        if experiments is None:
+            experiments = self.experiments
+        
+        if not experiments:
+            return {"error": "No experiments to analyze"}
+        
+        # Collect metrics
+        changed_counts = []
+        unchanged_counts = []
+        total_tokens = []
+        input_tokens = []
+        output_tokens = []
+        
+        # Track changes by question
+        question_changes = defaultdict(lambda: {"changed": 0, "total": 0})
+        
+        for exp in experiments:
+            changes = exp['changes']
+            changed_counts.append(changes['changed_answers'])
+            unchanged_counts.append(changes['unchanged_answers'])
+            
+            tokens = exp['tokens']
+            total_tokens.append(tokens['total'])
+            input_tokens.append(tokens['input'])
+            output_tokens.append(tokens['output'])
+            
+            # Track per-question changes
+            for detail in changes['details']:
+                q_id = detail['question_id']
+                question_changes[q_id]['total'] += 1
+                if detail['changed']:
+                    question_changes[q_id]['changed'] += 1
+        
+        # Calculate statistics
+        summary = {
+            "total_experiments": len(experiments),
+            "survey_changes": {
+                "changed_answers": {
+                    "mean": statistics.mean(changed_counts),
+                    "median": statistics.median(changed_counts),
+                    "stdev": statistics.stdev(changed_counts) if len(changed_counts) > 1 else 0,
+                    "min": min(changed_counts),
+                    "max": max(changed_counts),
+                    "values": changed_counts
+                },
+                "unchanged_answers": {
+                    "mean": statistics.mean(unchanged_counts),
+                    "median": statistics.median(unchanged_counts),
+                    "stdev": statistics.stdev(unchanged_counts) if len(unchanged_counts) > 1 else 0,
+                    "min": min(unchanged_counts),
+                    "max": max(unchanged_counts),
+                    "values": unchanged_counts
+                }
+            },
+            "token_usage": {
+                "total_tokens": {
+                    "mean": statistics.mean(total_tokens),
+                    "median": statistics.median(total_tokens),
+                    "stdev": statistics.stdev(total_tokens) if len(total_tokens) > 1 else 0,
+                    "min": min(total_tokens),
+                    "max": max(total_tokens),
+                    "sum": sum(total_tokens)
+                },
+                "input_tokens": {
+                    "mean": statistics.mean(input_tokens),
+                    "median": statistics.median(input_tokens),
+                    "stdev": statistics.stdev(input_tokens) if len(input_tokens) > 1 else 0,
+                    "sum": sum(input_tokens)
+                },
+                "output_tokens": {
+                    "mean": statistics.mean(output_tokens),
+                    "median": statistics.median(output_tokens),
+                    "stdev": statistics.stdev(output_tokens) if len(output_tokens) > 1 else 0,
+                    "sum": sum(output_tokens)
+                }
+            },
+            "per_question_change_rate": {}
+        }
+        
+        # Calculate per-question change rates
+        for q_id, data in question_changes.items():
+            summary["per_question_change_rate"][q_id] = {
+                "change_rate": data['changed'] / data['total'] if data['total'] > 0 else 0,
+                "changed_count": data['changed'],
+                "total_count": data['total']
+            }
+        
+        # Calculate total cost
+        total_input = sum(input_tokens)
+        total_output = sum(output_tokens)
+        input_cost = (total_input / 1_000_000) * 3.0
+        output_cost = (total_output / 1_000_000) * 15.0
+        
+        summary["total_cost"] = {
+            "input_cost_usd": round(input_cost, 4),
+            "output_cost_usd": round(output_cost, 4),
+            "total_cost_usd": round(input_cost + output_cost, 4)
+        }
+        
+        return summary
+    
+    def print_summary_statistics(self, summary: Dict[str, any] = None):
+        """Print summary statistics in a readable format."""
+        if summary is None:
+            summary = self.calculate_summary_statistics()
+        
+        if "error" in summary:
+            print(summary["error"])
+            return
+        
+        print(f"\n{'='*70}")
+        print(f"SUMMARY STATISTICS ACROSS {summary['total_experiments']} EXPERIMENTS")
+        print(f"{'='*70}\n")
+        
+        # Survey changes
+        print("SURVEY CHANGES:")
+        print(f"  Changed Answers:")
+        print(f"    Mean:   {summary['survey_changes']['changed_answers']['mean']:.2f}")
+        print(f"    Median: {summary['survey_changes']['changed_answers']['median']:.1f}")
+        print(f"    StdDev: {summary['survey_changes']['changed_answers']['stdev']:.2f}")
+        print(f"    Range:  {summary['survey_changes']['changed_answers']['min']} - {summary['survey_changes']['changed_answers']['max']}")
+        
+        print(f"\n  Unchanged Answers:")
+        print(f"    Mean:   {summary['survey_changes']['unchanged_answers']['mean']:.2f}")
+        print(f"    Median: {summary['survey_changes']['unchanged_answers']['median']:.1f}")
+        print(f"    StdDev: {summary['survey_changes']['unchanged_answers']['stdev']:.2f}")
+        print(f"    Range:  {summary['survey_changes']['unchanged_answers']['min']} - {summary['survey_changes']['unchanged_answers']['max']}")
+        
+        # Per-question change rates
+        print(f"\n  Change Rate by Question:")
+        for q_id, data in sorted(summary['per_question_change_rate'].items()):
+            print(f"    {q_id}: {data['change_rate']*100:.1f}% ({data['changed_count']}/{data['total_count']})")
+        
+        # Token usage
+        print(f"\nTOKEN USAGE:")
+        print(f"  Total Tokens:")
+        print(f"    Mean per experiment: {summary['token_usage']['total_tokens']['mean']:.0f}")
+        print(f"    Median:              {summary['token_usage']['total_tokens']['median']:.0f}")
+        print(f"    StdDev:              {summary['token_usage']['total_tokens']['stdev']:.0f}")
+        print(f"    Range:               {summary['token_usage']['total_tokens']['min']} - {summary['token_usage']['total_tokens']['max']}")
+        print(f"    Sum across all:      {summary['token_usage']['total_tokens']['sum']:,}")
+        
+        print(f"\n  Input Tokens:")
+        print(f"    Mean per experiment: {summary['token_usage']['input_tokens']['mean']:.0f}")
+        print(f"    Sum across all:      {summary['token_usage']['input_tokens']['sum']:,}")
+        
+        print(f"\n  Output Tokens:")
+        print(f"    Mean per experiment: {summary['token_usage']['output_tokens']['mean']:.0f}")
+        print(f"    Sum across all:      {summary['token_usage']['output_tokens']['sum']:,}")
+        
+        # Cost
+        print(f"\nTOTAL COST:")
+        print(f"  Input:  ${summary['total_cost']['input_cost_usd']:.4f}")
+        print(f"  Output: ${summary['total_cost']['output_cost_usd']:.4f}")
+        print(f"  Total:  ${summary['total_cost']['total_cost_usd']:.4f}")
+        
+        print(f"\n{'='*70}\n")
 
 
 # Example usage
 if __name__ == "__main__":
+    import argparse
+    import sys
+    
+    # CONFIGURABLE DEFAULTS - Change these values to run different experiments
+    DEFAULT_NUM_EXPERIMENTS = 10
+    DEFAULT_NUM_TURNS = 5
+    DEFAULT_VERBOSE = False
+    
+    # Set up argument parser
+    parser = argparse.ArgumentParser(description='Run conversation experiments with surveys')
+    parser.add_argument('--num-experiments', type=int, default=DEFAULT_NUM_EXPERIMENTS,
+                       help=f'Number of experiments to run (default: {DEFAULT_NUM_EXPERIMENTS})')
+    parser.add_argument('--num-turns', type=int, default=DEFAULT_NUM_TURNS,
+                       help=f'Number of conversation turns per experiment (default: {DEFAULT_NUM_TURNS})')
+    parser.add_argument('--verbose', action='store_true', default=DEFAULT_VERBOSE,
+                       help='Print detailed conversation output')
+    
+    args = parser.parse_args()
+    
+    print(f"\n{'='*70}")
+    print(f"CONFIGURATION")
+    print(f"{'='*70}")
+    print(f"Number of experiments: {args.num_experiments}")
+    print(f"Turns per conversation: {args.num_turns}")
+    print(f"Verbose mode: {args.verbose}")
+    print(f"{'='*70}\n")
+    
     # Define personas
     persona_alice = {
         "name": "Alice",
@@ -464,64 +741,87 @@ if __name__ == "__main__":
     }
     
     # Initialize simulator
-    sim = ConversationSimulator(api_key="REMOVED_TOKEN")
+    sim = ConversationSimulator(api_key='REMOVED_TOKEN')
     
-    # Run conversation with survey
-    print("SCENARIO: Alice seeks advice from Bob about career change")
-    results = sim.run_conversation_with_survey(
-        persona_a=persona_alice,
-        persona_b=persona_bob,
-        survey=career_survey,
-        surveyed_persona="a",  # Alice takes the survey
-        initial_message="I've been thinking a lot about leaving tech to become a teacher. Part of me is excited, but honestly, I'm terrified of giving up my stability.",
-        num_turns=6
-    )
-    
-    # Analyze changes
-    print("\n" + "="*60)
-    print("SURVEY CHANGE ANALYSIS")
-    print("="*60 + "\n")
-    
-    changes = sim.analyze_survey_changes(results['pre_survey'], results['post_survey'])
-    
-    print(f"Total Questions: {changes['total_questions']}")
-    print(f"Changed Answers: {changes['changed_answers']}")
-    print(f"Unchanged Answers: {changes['unchanged_answers']}")
-    print(f"\nChange Details:\n")
-    
-    for detail in changes['details']:
-        status = "✓ CHANGED" if detail['changed'] else "○ No change"
-        print(f"{status} - {detail['question']}")
-        print(f"  Pre:  {detail['pre_answer']}) {detail['pre_answer_text']}")
-        print(f"  Post: {detail['post_answer']}) {detail['post_answer_text']}\n")
-    
-    # Export everything
-    final_results = {
-        "conversation_and_surveys": results,
-        "change_analysis": changes,
-        "all_survey_data": sim.get_all_survey_results(),
-        "token_usage": sim.get_detailed_token_usage(),
-        "cost_estimate": sim.calculate_estimated_cost()
-    }
-    
-    sim.export_results(final_results)
-    
-    # Print token usage summary
-    print("\n" + "="*60)
-    print("TOKEN USAGE SUMMARY")
-    print("="*60 + "\n")
-    
-    summary = sim.get_token_usage_summary()
-    cost = sim.calculate_estimated_cost()
-    
-    print(f"Total API Calls: {summary['total_api_calls']}")
-    print(f"Total Input Tokens: {summary['total_input_tokens']:,}")
-    print(f"Total Output Tokens: {summary['total_output_tokens']:,}")
-    print(f"Total Tokens: {summary['total_tokens']:,}")
-    print(f"\nBy Type:")
-    print(f"  Survey - Input: {summary['by_type']['survey']['input']:,}, Output: {summary['by_type']['survey']['output']:,}")
-    print(f"  Conversation - Input: {summary['by_type']['conversation']['input']:,}, Output: {summary['by_type']['conversation']['output']:,}")
-    print(f"\nEstimated Cost:")
-    print(f"  Input: ${cost['input_cost_usd']:.4f}")
-    print(f"  Output: ${cost['output_cost_usd']:.4f}")
-    print(f"  Total: ${cost['total_cost_usd']:.4f}")
+    # Check if running multiple experiments or single
+    if args.num_experiments > 1:
+        print(f"Starting {args.num_experiments} experiments with {args.num_turns} turns each...\n")
+        
+        # Run multiple experiments
+        all_experiments = sim.run_multiple_experiments(
+            persona_a=persona_alice,
+            persona_b=persona_bob,
+            survey=career_survey,
+            surveyed_persona="a",  # Alice takes the survey
+            initial_message="I've been thinking a lot about leaving tech to become a teacher. Part of me is excited, but honestly, I'm terrified of giving up my stability.",
+            num_experiments=args.num_experiments,
+            num_turns=args.num_turns,
+            verbose=args.verbose
+        )
+        
+        # Calculate and print summary statistics
+        summary = sim.calculate_summary_statistics()
+        sim.print_summary_statistics(summary)
+        
+        # Export all results
+        final_results = {
+            "configuration": {
+                "num_experiments": args.num_experiments,
+                "num_turns": args.num_turns,
+                "surveyed_persona": "Alice",
+                "timestamp": datetime.now().isoformat()
+            },
+            "all_experiments": all_experiments,
+            "summary_statistics": summary,
+            "detailed_token_usage": sim.get_detailed_token_usage()
+        }
+        
+        filename = f"experiment_results_{args.num_experiments}x_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        sim.export_results(final_results, filename)
+        
+        print(f"\n✓ All {args.num_experiments} experiments completed!")
+        print(f"✓ Results exported to: {filename}")
+        
+    else:
+        # Single experiment with detailed output
+        print("Running single experiment with detailed output...\n")
+        
+        results = sim.run_conversation_with_survey(
+            persona_a=persona_alice,
+            persona_b=persona_bob,
+            survey=career_survey,
+            surveyed_persona="a",
+            initial_message="I've been thinking a lot about leaving tech to become a teacher. Part of me is excited, but honestly, I'm terrified of giving up my stability.",
+            num_turns=args.num_turns,
+            verbose=True
+        )
+        
+        # Analyze changes
+        print("\n" + "="*60)
+        print("SURVEY CHANGE ANALYSIS")
+        print("="*60 + "\n")
+        
+        changes = sim.analyze_survey_changes(results['pre_survey'], results['post_survey'])
+        
+        print(f"Total Questions: {changes['total_questions']}")
+        print(f"Changed Answers: {changes['changed_answers']}")
+        print(f"Unchanged Answers: {changes['unchanged_answers']}")
+        print(f"\nChange Details:\n")
+        
+        for detail in changes['details']:
+            status = "✓ CHANGED" if detail['changed'] else "○ No change"
+            print(f"{status} - {detail['question']}")
+            print(f"  Pre:  {detail['pre_answer']}) {detail['pre_answer_text']}")
+            print(f"  Post: {detail['post_answer']}) {detail['post_answer_text']}\n")
+        
+        # Export single result
+        final_results = {
+            "conversation_and_surveys": results,
+            "change_analysis": changes,
+            "token_usage": sim.get_detailed_token_usage(),
+            "cost_estimate": sim.calculate_estimated_cost()
+        }
+        
+        sim.export_results(final_results)
+        
+        print("\n✓ Experiment completed!")
