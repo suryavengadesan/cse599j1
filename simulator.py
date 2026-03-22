@@ -692,6 +692,15 @@ CRITICAL INSTRUCTIONS:
         if filename is None:
             filename = f"conversation_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         
+        # Route to appropriate subdirectory if no path is specified
+        if os.path.dirname(filename) == '':
+            if filename.startswith('experiment_results'):
+                output_dir = os.path.join('results', 'experiments')
+            else:
+                output_dir = os.path.join('results', 'conversations')
+            os.makedirs(output_dir, exist_ok=True)
+            filename = os.path.join(output_dir, filename)
+        
         with open(filename, 'w') as f:
             json.dump(results, f, indent=2)
         
@@ -750,6 +759,11 @@ CRITICAL INSTRUCTIONS:
         if filename is None:
             filename = f"api_call_logs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         
+        if os.path.dirname(filename) == '':
+            output_dir = os.path.join('results', 'debug', 'api_logs')
+            os.makedirs(output_dir, exist_ok=True)
+            filename = os.path.join(output_dir, filename)
+        
         with open(filename, 'w') as f:
             json.dump(self.api_call_logs, f, indent=2)
         
@@ -768,6 +782,11 @@ CRITICAL INSTRUCTIONS:
         
         if filename is None:
             filename = f"token_counts_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        
+        if os.path.dirname(filename) == '':
+            output_dir = os.path.join('results', 'debug', 'token_counts')
+            os.makedirs(output_dir, exist_ok=True)
+            filename = os.path.join(output_dir, filename)
         
         with open(filename, 'w') as f:
             # Write header
