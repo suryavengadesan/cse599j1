@@ -1,0 +1,6 @@
+anthropic
+requests
+python-dotenv
+pyyaml
+hypothesis
+pytest
