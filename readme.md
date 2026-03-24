@@ -1,25 +1,42 @@
-# Conversation Simulator
+# ATA: Adversarial Trajectory Analysis
 
-A Python framework for simulating multi-turn conversations between AI personas and measuring attitude changes through pre/post surveys. Useful for researching persuasion dynamics, dialogue strategies, and prompt engineering effects.
+A framework for measuring how preferences shift across multi-turn AI conversations. ATA runs controlled dialogue experiments between AI personas, administers pre/post surveys to track attitude change, and supports ablation studies to isolate the factors that drive opinion movement.
 
-## Quick Start
+## What it does
 
-### 1. Install dependencies
+ATA lets you answer questions like: *Does an adversarial conversational strategy move opinions more than a neutral one? How many turns does it take for preferences to shift?* It does this by:
+
+- Simulating multi-turn conversations between two AI personas with defined starting positions
+- Administering structured surveys before and after each conversation to measure preference change
+- Running ablation sweeps over parameters (e.g. `adversarial`, `num_turns`) to compare conditions
+- Using an optional LLM judge to score trajectory drift and identify key turning points
+
+### Ablation experiments
+
+The `--ablate` flag sweeps a cartesian product of any config parameters and runs experiments for each combination. For example, comparing adversarial vs. neutral mode on the Seattle-SF scenario shows a clear signal: adversarial conversations produced opinion change on all 4 survey questions (100% change rate), while neutral conversations produced change on 2 of 4 (50% change rate). The judge assessments capture *why* — adversarial personas pushed harder on identity and cost-of-living tradeoffs, while neutral personas converged on mutual respect without fully challenging the other's position.
+
+Results are written per-condition to `results/experiments/` with full config embedded for reproducibility.
+
+---
+
+## Conversation Simulator
+
+The conversation simulator is the engine underneath ATA. It's a layered Python pipeline that handles the full experiment lifecycle.
+
+### Quick Start
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Set up API keys
-
-Create a `.env` file in the project root:
+Create a `.env` file:
 
 ```bash
 ANTHROPIC_API_KEY=sk-ant-your-key-here
 HF_API_KEY=hf_your-key-here   # only needed for --provider huggingface
 ```
 
-### 3. Run an experiment
+Run experiments:
 
 ```bash
 # List available scenarios
@@ -38,7 +55,7 @@ python run.py --scenario seattle-sf --adversarial
 python run.py --scenario seattle-sf --ablate '{"num_turns": [3, 5], "adversarial": [true, false]}' --num-experiments 2
 ```
 
-## CLI Reference
+### CLI Reference
 
 | Argument | Default | Description |
 |---|---|---|
@@ -54,9 +71,7 @@ python run.py --scenario seattle-sf --ablate '{"num_turns": [3, 5], "adversarial
 | `--ablate` | — | JSON string for parameter sweeps |
 | `--show-survey` | — | List available scenarios and exit |
 
-## Architecture
-
-The codebase is organized as a layered pipeline. Each layer has a single responsibility and depends only on the layers below it.
+### Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -97,7 +112,7 @@ Key design choices:
 - `ExperimentResult` embeds its full `ExperimentConfig`, making every result file self-describing and reproducible
 - `AblationGrid` sweeps a cartesian product of any `ExperimentConfig` fields, reusing the same `ExperimentRunner` machinery
 
-## Project Structure
+### Project Structure
 
 ```
 run.py                  # CLI entry point
@@ -112,10 +127,9 @@ simulator/
 scenarios/              # YAML scenario definitions
 results/                # Output directory (experiments, conversations, debug)
 tests/                  # pytest test suite
-simulator.py            # Legacy monolithic implementation (kept for reference)
 ```
 
-## Scenarios
+### Scenarios
 
 Scenarios are YAML files in `scenarios/`. Each defines two personas, an opening message, and a multiple-choice survey.
 
@@ -152,20 +166,19 @@ survey:
 initial_message: "Opening line from persona_a..."
 ```
 
-### Persona modes
-
+Persona modes:
 - Simplified — set only `preference`
 - Full — set `background`, `personality`, `style`, `goals`
 - Adversarial — set `strategy`; selected when `--adversarial` flag is used
 
-## Providers
+### Providers
 
 | Provider | Default model | Env var |
 |---|---|---|
 | `anthropic` | `claude-sonnet-4-5-20250929` | `ANTHROPIC_API_KEY` |
 | `huggingface` | `Qwen/Qwen3-4B-Instruct-2507:nscale` | `HF_API_KEY` |
 
-## Output
+### Output
 
 Results are written to `results/`:
 
@@ -173,7 +186,7 @@ Results are written to `results/`:
 - `results/conversations/` — Conversation logs
 - `results/debug/token_counts/` — Per-call token CSV (when `--debug` is set)
 
-## Running Tests
+### Running Tests
 
 ```bash
 pytest tests/

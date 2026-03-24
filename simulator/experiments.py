@@ -17,6 +17,7 @@ from itertools import product
 from typing import Any, Dict, List, Optional
 
 from simulator.conversation import Turn, run as run_conversation
+from simulator.judge import JudgeResult, judge_conversation
 from simulator.personas import Persona
 from simulator.providers import get_provider
 from simulator.scenarios import load_scenario
@@ -41,6 +42,7 @@ class ExperimentConfig:
     survey_questions: Optional[List[str]] = None
     verbose: bool = False
     debug: bool = False
+    judge: bool = False
 
 
 @dataclass
@@ -54,6 +56,7 @@ class ExperimentResult:
     post_survey: SurveyResult
     changes: List[SurveyChange]
     tokens: Dict                         # input/output/total for this run
+    judge: Optional[JudgeResult]         # None unless cfg.judge == True
     timestamp: str
 
 
@@ -168,6 +171,11 @@ class ExperimentRunner:
         if cfg.debug:
             tracker.export_csv()
 
+        # Optional judge pass — two separate API calls, one per persona
+        judge_result: Optional[JudgeResult] = None
+        if cfg.judge:
+            judge_result = judge_conversation(persona_a, persona_b, turns, provider, tracker)
+
         return ExperimentResult(
             experiment_id=exp_id,
             config=cfg,
@@ -176,6 +184,7 @@ class ExperimentRunner:
             post_survey=post_survey,
             changes=changes,
             tokens=tokens,
+            judge=judge_result,
             timestamp=datetime.now(timezone.utc).isoformat(),
         )
 
@@ -303,7 +312,7 @@ class ExperimentRunner:
 # ---------------------------------------------------------------------------
 
 _ABLATABLE_FIELDS = frozenset(
-    {"num_turns", "adversarial", "provider", "scenario_name", "survey_questions", "model"}
+    {"num_turns", "adversarial", "provider", "scenario_name", "survey_questions", "model", "judge"}
 )
 
 

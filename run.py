@@ -83,6 +83,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Scenario name to run (must match a YAML file in scenarios/). Use --show-survey to list available scenarios.",
     )
     parser.add_argument(
+        "--judge",
+        action="store_true",
+        default=False,
+        help="Enable LLM-as-judge to assess preference drift for each persona (opt-in, adds 2 API calls per experiment)",
+    )
+    parser.add_argument(
         "--show-survey",
         action="store_true",
         default=False,
@@ -116,6 +122,7 @@ def print_config(args: argparse.Namespace, survey_questions) -> None:
     print(f"Adversarial mode:     {args.adversarial}")
     print(f"Debug mode:           {args.debug}")
     print(f"Survey questions:     {survey_questions if survey_questions else 'All questions'}")
+    print(f"Judge mode:           {args.judge}")
     if args.ablate:
         print(f"Ablation axes:        {args.ablate}")
     print(f"{sep}\n")
@@ -169,6 +176,7 @@ def main() -> int:
         survey_questions=survey_questions,
         verbose=args.verbose,
         debug=args.debug,
+        judge=args.judge,
     )
 
     # --ablate path
