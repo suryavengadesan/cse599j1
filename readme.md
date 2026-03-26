@@ -1,29 +1,48 @@
-# ATA: Adversarial Trajectory Analysis
+# SAT-Eval 🧭 : A Framework for Preference Drift
 
-A framework for measuring how preferences shift across multi-turn AI conversations. ATA runs controlled dialogue experiments between AI personas, administers pre/post surveys to track attitude change, and supports ablation studies to isolate the factors that drive opinion movement.
+SAT-Eval (Simulated Adversarial Trajectory Evaluation) introduces a simulation and evaluation framework for studying preference drift in multi-turn LLM conversations. It runs controlled dialogue experiments between AI personas, administers pre/post surveys to track attitude change, and supports ablation studies to isolate the factors that drive opinion movement.
+
+📄 **[Read the paper draft on Overleaf](https://www.overleaf.com/read/qrkqvnnmjwpt#1cc11c)**
+
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                     SAT-Eval Pipeline                     │
+│                                                          │
+│  Before: Alice prefers SF (q1=A "Very negative")         │
+│                                                          │
+│  ┌────────────────────────────────────────────────────┐  │
+│  │            Multi-Turn Conversation                 │  │
+│  │                                                    │  │
+│  │  Alice: "I love SF, the energy is incredible"      │  │
+│  │              │                                     │  │
+│  │              ▼                                     │  │
+│  │  Bob: "Seattle has great tech + lower cost         │  │
+│  │        of living"                                  │  │
+│  │              │                                     │  │
+│  │              ▼                                     │  │
+│  │  Alice: "Hmm, I hadn't considered that..."         │  │
+│  │              │                                     │  │
+│  │              ▼                                     │  │
+│  │  Bob: "Plus the outdoor lifestyle is unmatched"    │  │
+│  └────────────────────────────────────────────────────┘  │
+│                                                          │
+│  After: Alice is open to Seattle (q1=C "Somewhat pos.")  │
+│                                                          │
+│  Preference Drift: q1 moved A → C  (2-point shift)      │
+└──────────────────────────────────────────────────────────┘
+```
 
 ## What it does
 
-ATA lets you answer questions like: *Does an adversarial conversational strategy move opinions more than a neutral one? How many turns does it take for preferences to shift?* It does this by:
+SAT-Eval lets you answer questions like: *Does an adversarial conversational strategy move opinions more than a neutral one? How many turns does it take for preferences to shift?* It does this by:
 
 - Simulating multi-turn conversations between two AI personas with defined starting positions
 - Administering structured surveys before and after each conversation to measure preference change
 - Running ablation sweeps over parameters (e.g. `adversarial`, `num_turns`) to compare conditions
 - Using an optional LLM judge to score trajectory drift and identify key turning points
 
-### Ablation experiments
-
-The `--ablate` flag sweeps a cartesian product of any config parameters and runs experiments for each combination. For example, comparing adversarial vs. neutral mode on the Seattle-SF scenario shows a clear signal: adversarial conversations produced opinion change on all 4 survey questions (100% change rate), while neutral conversations produced change on 2 of 4 (50% change rate). The judge assessments capture *why* — adversarial personas pushed harder on identity and cost-of-living tradeoffs, while neutral personas converged on mutual respect without fully challenging the other's position.
-
-Results are written per-condition to `results/experiments/` with full config embedded for reproducibility.
-
----
-
-## Conversation Simulator
-
-The conversation simulator is the engine underneath ATA. It's a layered Python pipeline that handles the full experiment lifecycle.
-
-### Quick Start
+## Quick Start
 
 ```bash
 pip install -r requirements.txt
