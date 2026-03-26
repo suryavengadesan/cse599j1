@@ -11,11 +11,13 @@ Usage examples:
 
 import argparse
 import json
+import re
 import sys
 
 from dotenv import load_dotenv
 
 from simulator.experiments import AblationGrid, ExperimentConfig, ExperimentRunner
+from simulator.generator import ScenarioGenerator
 from simulator.scenarios import ScenarioNotFoundError, list_scenarios
 
 load_dotenv()
@@ -103,6 +105,19 @@ def build_parser() -> argparse.ArgumentParser:
             "Runs a full cartesian product of all specified values."
         ),
     )
+    parser.add_argument(
+        "--generate",
+        type=str,
+        default=None,
+        metavar="TOPIC",
+        help='Generate a new scenario from a topic description, e.g. --generate "remote work vs office"',
+    )
+    parser.add_argument(
+        "--topic",
+        type=str,
+        default=None,
+        help='Auto-generate the scenario from this topic before running experiments, e.g. --topic "vinyl vs streaming"',
+    )
 
     return parser
 
@@ -116,6 +131,8 @@ def print_config(args: argparse.Namespace, survey_questions) -> None:
     if args.model:
         print(f"Model:                {args.model}")
     print(f"Scenario:             {args.scenario}")
+    if args.topic:
+        print(f"Topic (auto-gen):     {args.topic}")
     print(f"Number of experiments:{args.num_experiments}")
     print(f"Turns per conversation:{args.num_turns}")
     print(f"Verbose mode:         {args.verbose}")
@@ -144,12 +161,28 @@ def main() -> int:
             print("No scenarios found in scenarios/ directory.")
         return 0
 
-    # Require --scenario for all other operations
-    if args.scenario is None:
-        parser.error("--scenario is required. Use --show-survey to list available scenarios.")
+    # --generate: create a new scenario and exit
+    if args.generate:
+        print(f"Generating scenario for: {args.generate}")
+        gen = ScenarioGenerator(provider=args.provider, model=args.model)
+        try:
+            path = gen.generate(args.generate)
+        except (ValueError, Exception) as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
+        print(f"Scenario written to: {path}")
+        return 0
 
-    # Validate scenario name early so we can give a helpful error
-    if args.scenario not in available:
+    # Require --scenario for all other operations
+    if args.scenario is None and args.topic is None:
+        parser.error("--scenario is required (or use --topic to auto-generate). Use --show-survey to list available scenarios.")
+
+    # When --topic is provided without --scenario, derive a name from the topic
+    if args.topic and args.scenario is None:
+        args.scenario = re.sub(r"[^a-z0-9]+", "-", args.topic.lower()).strip("-")
+
+    # Validate scenario name early — but skip if we have a topic (it'll be generated)
+    if args.topic is None and args.scenario not in available:
         print(f"Error: unknown scenario {args.scenario!r}.", file=sys.stderr)
         if available:
             print("Available scenarios:", file=sys.stderr)
@@ -177,6 +210,7 @@ def main() -> int:
         verbose=args.verbose,
         debug=args.debug,
         judge=args.judge,
+        topic=args.topic,
     )
 
     # --ablate path

@@ -17,10 +17,11 @@ from itertools import product
 from typing import Any, Dict, List, Optional
 
 from simulator.conversation import Turn, run as run_conversation
+from simulator.generator import ScenarioGenerator
 from simulator.judge import JudgeResult, judge_conversation
 from simulator.personas import Persona
 from simulator.providers import get_provider
-from simulator.scenarios import load_scenario
+from simulator.scenarios import load_scenario, list_scenarios
 from simulator.survey import SurveyChange, SurveyResult, administer_survey, analyze_changes
 from simulator.tracking import UsageTracker
 
@@ -32,7 +33,11 @@ from simulator.tracking import UsageTracker
 
 @dataclass
 class ExperimentConfig:
-    """All parameters needed to reproduce a single experiment."""
+    """All parameters needed to reproduce a single experiment.
+
+    If *topic* is set and no YAML file exists for *scenario_name*, the
+    scenario is auto-generated from the topic before the first run.
+    """
 
     scenario_name: str
     provider: str = "anthropic"
@@ -43,6 +48,7 @@ class ExperimentConfig:
     verbose: bool = False
     debug: bool = False
     judge: bool = False
+    topic: Optional[str] = None          # auto-generate scenario from topic
 
 
 @dataclass
@@ -95,6 +101,16 @@ class ExperimentRunner:
     def __init__(self, config: ExperimentConfig) -> None:
         self.config = config
         self._experiment_counter = 0
+        self._ensure_scenario()
+
+    def _ensure_scenario(self) -> None:
+        """Auto-generate the scenario YAML if a topic is provided and the file doesn't exist."""
+        cfg = self.config
+        if cfg.topic and cfg.scenario_name not in list_scenarios():
+            print(f"  Generating scenario '{cfg.scenario_name}' from topic: {cfg.topic}")
+            gen = ScenarioGenerator(provider=cfg.provider, model=cfg.model)
+            path = gen.generate(cfg.topic, scenario_name=cfg.scenario_name)
+            print(f"  Scenario written to: {path}")
 
     # ------------------------------------------------------------------
     # Single run
@@ -312,7 +328,7 @@ class ExperimentRunner:
 # ---------------------------------------------------------------------------
 
 _ABLATABLE_FIELDS = frozenset(
-    {"num_turns", "adversarial", "provider", "scenario_name", "survey_questions", "model", "judge"}
+    {"num_turns", "adversarial", "provider", "scenario_name", "survey_questions", "model", "judge", "topic"}
 )
 
 
