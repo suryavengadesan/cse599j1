@@ -11,19 +11,7 @@ ATA lets you answer questions like: *Does an adversarial conversational strategy
 - Running ablation sweeps over parameters (e.g. `adversarial`, `num_turns`) to compare conditions
 - Using an optional LLM judge to score trajectory drift and identify key turning points
 
-### Ablation experiments
-
-The `--ablate` flag sweeps a cartesian product of any config parameters and runs experiments for each combination. For example, comparing adversarial vs. neutral mode on the Seattle-SF scenario shows a clear signal: adversarial conversations produced opinion change on all 4 survey questions (100% change rate), while neutral conversations produced change on 2 of 4 (50% change rate). The judge assessments capture *why* — adversarial personas pushed harder on identity and cost-of-living tradeoffs, while neutral personas converged on mutual respect without fully challenging the other's position.
-
-Results are written per-condition to `results/experiments/` with full config embedded for reproducibility.
-
----
-
-## Conversation Simulator
-
-The conversation simulator is the engine underneath ATA. It's a layered Python pipeline that handles the full experiment lifecycle.
-
-### Quick Start
+## Quick Start
 
 ```bash
 pip install -r requirements.txt
