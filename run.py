@@ -67,8 +67,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--provider",
         type=str,
         default="anthropic",
-        choices=["anthropic", "huggingface"],
-        help='API provider: "anthropic" (Claude) or "huggingface" (Qwen). Default: anthropic.',
+        choices=["anthropic", "huggingface", "tinkr"],
+        help='API provider: "anthropic" (Claude), "huggingface" (Qwen), or "tinkr" (fine-tuned Qwen via Tinker). Default: anthropic.',
     )
     parser.add_argument(
         "--model",
