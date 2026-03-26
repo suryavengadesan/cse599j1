@@ -175,19 +175,22 @@ class HuggingFaceProvider:
 # Factory
 # ---------------------------------------------------------------------------
 
-_VALID_PROVIDERS = ("anthropic", "huggingface")
+_VALID_PROVIDERS = ("anthropic", "huggingface", "tinkr")
 
 
 def get_provider(name: str, **kwargs) -> Provider:
     """Return a Provider instance for *name*.
 
-    Valid names: 'anthropic', 'huggingface'.
+    Valid names: 'anthropic', 'huggingface', 'tinkr'.
     Raises ValueError with the list of valid names if *name* is unknown.
     """
     if name == "anthropic":
         return AnthropicProvider(**kwargs)
     if name == "huggingface":
         return HuggingFaceProvider(**kwargs)
+    if name == "tinkr":
+        from train.tinkr_provider import TinkrProvider
+        return TinkrProvider(**kwargs)
     raise ValueError(
         f"Unknown provider {name!r}. Valid providers: {', '.join(_VALID_PROVIDERS)}"
     )
