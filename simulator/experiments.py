@@ -49,6 +49,7 @@ class ExperimentConfig:
     debug: bool = False
     judge: bool = False
     topic: Optional[str] = None          # auto-generate scenario from topic
+    max_tokens_per_turn: Optional[int] = None  # opt-in: cap tokens per conversation turn
 
 
 @dataclass
@@ -152,7 +153,7 @@ class ExperimentRunner:
         )
 
         # Conversation
-        turns = run_conversation(
+        conv_kwargs = dict(
             persona_a=persona_a,
             persona_b=persona_b,
             initial_message=scenario.initial_message,
@@ -161,6 +162,9 @@ class ExperimentRunner:
             tracker=tracker,
             verbose=cfg.verbose,
         )
+        if cfg.max_tokens_per_turn is not None:
+            conv_kwargs["max_tokens_per_turn"] = cfg.max_tokens_per_turn
+        turns = run_conversation(**conv_kwargs)
 
         # Post-survey (with conversation context)
         conversation_context = _conversation_to_text(turns)
@@ -328,7 +332,7 @@ class ExperimentRunner:
 # ---------------------------------------------------------------------------
 
 _ABLATABLE_FIELDS = frozenset(
-    {"num_turns", "adversarial", "provider", "scenario_name", "survey_questions", "model", "judge", "topic"}
+    {"num_turns", "adversarial", "provider", "scenario_name", "survey_questions", "model", "judge", "topic", "max_tokens_per_turn"}
 )
 
 

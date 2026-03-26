@@ -118,6 +118,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help='Auto-generate the scenario from this topic before running experiments, e.g. --topic "vinyl vs streaming"',
     )
+    parser.add_argument(
+        "--max-tokens-per-turn",
+        type=int,
+        default=None,
+        help="Cap each conversation turn to at most N tokens (opt-in, e.g. 200 for ~150 word responses)",
+    )
 
     return parser
 
@@ -140,6 +146,8 @@ def print_config(args: argparse.Namespace, survey_questions) -> None:
     print(f"Debug mode:           {args.debug}")
     print(f"Survey questions:     {survey_questions if survey_questions else 'All questions'}")
     print(f"Judge mode:           {args.judge}")
+    if args.max_tokens_per_turn:
+        print(f"Max tokens/turn:      {args.max_tokens_per_turn}")
     if args.ablate:
         print(f"Ablation axes:        {args.ablate}")
     print(f"{sep}\n")
@@ -211,6 +219,7 @@ def main() -> int:
         debug=args.debug,
         judge=args.judge,
         topic=args.topic,
+        max_tokens_per_turn=args.max_tokens_per_turn,
     )
 
     # --ablate path

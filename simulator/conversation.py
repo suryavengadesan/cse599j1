@@ -27,6 +27,7 @@ def run(
     provider: Provider,
     tracker: UsageTracker,
     verbose: bool = False,
+    max_tokens_per_turn: Optional[int] = None,
 ) -> List[Turn]:
     """Run a conversation between two personas and return the list of Turns.
 
@@ -46,6 +47,7 @@ def run(
         provider:        Provider used for all API calls.
         tracker:         UsageTracker that records token usage.
         verbose:         If True, print each turn to stdout.
+        max_tokens_per_turn: If set, cap each API response to this many tokens.
 
     Returns:
         List of Turn objects with sequential turn_index values starting at 0.
@@ -68,6 +70,11 @@ def run(
         print(f"{'='*60}\n")
         print(f"{persona_a.name}: {initial_message}\n")
 
+    # Build optional kwargs for token-limited calls
+    call_kwargs = {}
+    if max_tokens_per_turn is not None:
+        call_kwargs["max_tokens"] = max_tokens_per_turn
+
     current_message = initial_message
 
     for exchange in range(num_turns):
@@ -78,6 +85,7 @@ def run(
             system_prompt=system_b,
             call_type="conversation",
             persona_name=persona_b.name,
+            **call_kwargs,
         )
         messages_b.append({"role": "assistant", "content": result_b.text})
 
@@ -93,6 +101,7 @@ def run(
             system_prompt=system_a,
             call_type="conversation",
             persona_name=persona_a.name,
+            **call_kwargs,
         )
         messages_a.append({"role": "assistant", "content": result_a.text})
 
