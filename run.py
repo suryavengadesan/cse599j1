@@ -89,6 +89,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Enable LLM-as-judge to assess preference drift for each persona (opt-in, adds 2 API calls per experiment)",
     )
     parser.add_argument(
+        "--game-theory",
+        action="store_true",
+        default=False,
+        help="Enable game-theoretic analysis of the conversation (classifies moves, builds payoff matrix, finds Nash equilibrium)",
+    )
+    parser.add_argument(
         "--show-survey",
         action="store_true",
         default=False,
@@ -123,6 +129,7 @@ def print_config(args: argparse.Namespace, survey_questions) -> None:
     print(f"Debug mode:           {args.debug}")
     print(f"Survey questions:     {survey_questions if survey_questions else 'All questions'}")
     print(f"Judge mode:           {args.judge}")
+    print(f"Game theory:          {args.game_theory}")
     if args.ablate:
         print(f"Ablation axes:        {args.ablate}")
     print(f"{sep}\n")
@@ -177,6 +184,7 @@ def main() -> int:
         verbose=args.verbose,
         debug=args.debug,
         judge=args.judge,
+        game_theory=args.game_theory,
     )
 
     # --ablate path
@@ -216,6 +224,19 @@ def main() -> int:
     if changed:
         print(f"  Mean changed answers per run: {changed.get('mean', 0):.2f}")
         print(f"  Median: {changed.get('median', 0):.2f}  Stdev: {changed.get('stdev', 0):.2f}")
+
+    # Print game theory summary if enabled
+    if args.game_theory and results:
+        print("\n  Game Theory Analysis (last run):")
+        gt = results[-1].game_theory
+        if gt:
+            print(f"    Game type:        {gt.game_type}")
+            print(f"    Nash equilibrium: {gt.nash_equilibrium.equilibrium_type} — {gt.nash_equilibrium.explanation}")
+            print(f"    Avg utility A:    {gt.total_utility_a:.3f}")
+            print(f"    Avg utility B:    {gt.total_utility_b:.3f}")
+            print(f"    Fairness index:   {gt.fairness_index:.3f}")
+            print(f"    Strategy A:       {gt.strategy_a.strategy_label} (coop rate: {gt.strategy_a.cooperation_rate:.0%})")
+            print(f"    Strategy B:       {gt.strategy_b.strategy_label} (coop rate: {gt.strategy_b.cooperation_rate:.0%})")
 
     return 0
 
