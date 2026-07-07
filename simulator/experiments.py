@@ -17,10 +17,11 @@ from itertools import product
 from typing import Any, Dict, List, Optional
 
 from simulator.conversation import Turn, run as run_conversation
+from simulator.decision import MatchResult, collect_match_decisions
 from simulator.judge import JudgeResult, judge_conversation
 from simulator.personas import Persona
 from simulator.providers import get_provider
-from simulator.scenarios import load_scenario
+from simulator.scenarios import ScenarioConfig, load_scenario
 from simulator.survey import SurveyChange, SurveyResult, administer_survey, analyze_changes
 from simulator.tracking import UsageTracker
 
@@ -47,17 +48,22 @@ class ExperimentConfig:
 
 @dataclass
 class ExperimentResult:
-    """Self-describing result that embeds its full ExperimentConfig."""
+    """Self-describing result that embeds its full ExperimentConfig.
+
+    Survey fields are populated in survey mode; ``decision`` is populated in
+    interview mode. The two modes are mutually exclusive per run.
+    """
 
     experiment_id: int
     config: ExperimentConfig             # full config for self-describing results
     conversation: List[Turn]
-    pre_survey: SurveyResult
-    post_survey: SurveyResult
-    changes: List[SurveyChange]
-    tokens: Dict                         # input/output/total for this run
-    judge: Optional[JudgeResult]         # None unless cfg.judge == True
     timestamp: str
+    tokens: Optional[Dict] = None        # input/output/total for this run
+    pre_survey: Optional[SurveyResult] = None
+    post_survey: Optional[SurveyResult] = None
+    changes: Optional[List[SurveyChange]] = None
+    judge: Optional[JudgeResult] = None  # None unless cfg.judge == True
+    decision: Optional[MatchResult] = None  # populated in interview mode
 
 
 # ---------------------------------------------------------------------------
@@ -101,9 +107,11 @@ class ExperimentRunner:
     # ------------------------------------------------------------------
 
     def run_one(self) -> ExperimentResult:
-        """Execute one full experiment: pre-survey → conversation → post-survey.
+        """Execute one full experiment and return a self-describing ExperimentResult.
 
-        Returns an ExperimentResult with the full config embedded.
+        Dispatches on the scenario ``mode``:
+          - "survey"    → pre-survey → conversation → post-survey (preference drift)
+          - "interview" → conversation → both personas make a match decision
         """
         self._experiment_counter += 1
         exp_id = self._experiment_counter
@@ -121,6 +129,19 @@ class ExperimentRunner:
         # Load scenario (adversarial flag selects persona variants)
         scenario = load_scenario(cfg.scenario_name, adversarial=cfg.adversarial)
 
+        if scenario.mode == "interview":
+            return self._run_interview(exp_id, cfg, scenario, provider, tracker)
+        return self._run_survey(exp_id, cfg, scenario, provider, tracker)
+
+    def _run_survey(
+        self,
+        exp_id: int,
+        cfg: "ExperimentConfig",
+        scenario: ScenarioConfig,
+        provider: Any,
+        tracker: UsageTracker,
+    ) -> ExperimentResult:
+        """Preference-drift run: pre-survey → conversation → post-survey."""
         persona_a = scenario.persona_a
         persona_b = scenario.persona_b
 
@@ -188,6 +209,75 @@ class ExperimentRunner:
             timestamp=datetime.now(timezone.utc).isoformat(),
         )
 
+    def _run_interview(
+        self,
+        exp_id: int,
+        cfg: "ExperimentConfig",
+        scenario: ScenarioConfig,
+        provider: Any,
+        tracker: UsageTracker,
+    ) -> ExperimentResult:
+        """Interview run: conversation → both personas make a private match decision."""
+        persona_a = scenario.persona_a
+        persona_b = scenario.persona_b
+
+        # Conversation
+        turns = run_conversation(
+            persona_a=persona_a,
+            persona_b=persona_b,
+            initial_message=scenario.initial_message,
+            num_turns=cfg.num_turns,
+            provider=provider,
+            tracker=tracker,
+            verbose=cfg.verbose,
+        )
+
+        # Match decisions — pull role/match wording from the scenario if provided
+        dblock = scenario.decision or {}
+        decision_kwargs = {
+            k: dblock[k]
+            for k in ("worker_role", "firm_role", "worker_match_meaning", "firm_match_meaning")
+            if k in dblock
+        }
+        match_result = collect_match_decisions(
+            persona_a, persona_b, turns, provider, tracker, **decision_kwargs
+        )
+
+        if cfg.verbose:
+            wd = match_result.worker_decision
+            fd = match_result.firm_decision
+            print(f"\n{'='*60}")
+            print("MATCH DECISIONS")
+            print(f"  {wd.persona_name} (worker): wants_match={wd.wants_match}")
+            print(f"  {fd.persona_name} (firm):   wants_match={fd.wants_match}")
+            print(f"  mutual_match={match_result.mutual_match}")
+            print(f"{'='*60}\n")
+
+        # Optional judge pass — still applies to the interview transcript
+        judge_result: Optional[JudgeResult] = None
+        if cfg.judge:
+            judge_result = judge_conversation(persona_a, persona_b, turns, provider, tracker)
+
+        token_summary = tracker.summary()
+        tokens = {
+            "input": token_summary["total_input_tokens"],
+            "output": token_summary["total_output_tokens"],
+            "total": token_summary["total_tokens"],
+        }
+
+        if cfg.debug:
+            tracker.export_csv()
+
+        return ExperimentResult(
+            experiment_id=exp_id,
+            config=cfg,
+            conversation=turns,
+            tokens=tokens,
+            judge=judge_result,
+            decision=match_result,
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
+
     # ------------------------------------------------------------------
     # Batch run
     # ------------------------------------------------------------------
@@ -221,6 +311,10 @@ class ExperimentRunner:
                 "survey_changes": {},
                 "tokens": {"mean_input": 0, "mean_output": 0, "mean_total": 0},
             }
+
+        # Interview mode: summarise match decisions instead of survey drift
+        if any(r.decision is not None for r in results):
+            return self._summarize_interview(results)
 
         # Per-question change counts
         question_changed: Dict[str, int] = {}
@@ -264,6 +358,66 @@ class ExperimentRunner:
                     "mean": mean_changed,
                     "median": median_changed,
                     "stdev": stdev_changed,
+                },
+            },
+            "tokens": {
+                "mean_input": mean_input,
+                "mean_output": mean_output,
+                "mean_total": mean_total,
+            },
+        }
+
+    def _summarize_interview(self, results: List[ExperimentResult]) -> Dict:
+        """Summarise match-decision outcomes across interview runs.
+
+        Rates are computed over runs where the relevant decision(s) parsed
+        successfully; ``parse_errors`` counts runs dropped from a given rate.
+        """
+        n = len(results)
+        worker_yes = firm_yes = mutual_yes = 0
+        worker_n = firm_n = mutual_n = 0
+        agree_yes = agree_n = 0
+
+        for r in results:
+            d = r.decision
+            if d is None:
+                continue
+            w = d.worker_decision.wants_match
+            f = d.firm_decision.wants_match
+            if w is not None:
+                worker_n += 1
+                worker_yes += int(w)
+            if f is not None:
+                firm_n += 1
+                firm_yes += int(f)
+            if w is not None and f is not None:
+                mutual_n += 1
+                mutual_yes += int(w and f)
+                agree_n += 1
+                agree_yes += int(w == f)
+
+        def rate(num: int, den: int) -> Optional[float]:
+            return (num / den) if den else None
+
+        # Token aggregates
+        mean_input = statistics.mean(r.tokens["input"] for r in results)
+        mean_output = statistics.mean(r.tokens["output"] for r in results)
+        mean_total = statistics.mean(r.tokens["total"] for r in results)
+
+        return {
+            "num_experiments": n,
+            "match_decisions": {
+                "worker_match_rate": rate(worker_yes, worker_n),
+                "firm_match_rate": rate(firm_yes, firm_n),
+                "mutual_match_rate": rate(mutual_yes, mutual_n),
+                "agreement_rate": rate(agree_yes, agree_n),
+                "counts": {
+                    "worker_yes": worker_yes,
+                    "firm_yes": firm_yes,
+                    "mutual_yes": mutual_yes,
+                    "parseable_worker": worker_n,
+                    "parseable_firm": firm_n,
+                    "parseable_both": mutual_n,
                 },
             },
             "tokens": {

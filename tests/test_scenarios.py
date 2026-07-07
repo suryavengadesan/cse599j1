@@ -37,3 +37,21 @@ def test_scenario_has_initial_message():
     config = load_scenario("seattle-sf")
     assert isinstance(config.initial_message, str)
     assert len(config.initial_message.strip()) > 0
+
+
+def test_survey_scenario_defaults_to_survey_mode():
+    config = load_scenario("seattle-sf")
+    assert config.mode == "survey"
+    assert config.decision is None
+
+
+def test_load_interview_scenario():
+    config = load_scenario("interview-swe")
+    assert config.mode == "interview"
+    assert config.survey is None          # interview scenarios need no survey
+    assert config.persona_a.name == "Jordan"
+    assert config.persona_b.name == "Riley"
+    assert config.initial_message.strip()
+    # decision block carries the role/match wording
+    assert config.decision is not None
+    assert "worker_role" in config.decision

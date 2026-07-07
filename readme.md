@@ -140,6 +140,7 @@ simulator/
   providers.py          # Anthropic / HuggingFace provider abstraction
   conversation.py       # Turn-taking conversation loop
   survey.py             # Survey administration and change analysis
+  decision.py           # End-of-conversation match decisions (interview mode)
   scenarios.py          # YAML scenario loader
   experiments.py        # ExperimentRunner and AblationGrid
   tracking.py           # Token usage tracker
@@ -189,6 +190,54 @@ Persona modes:
 - Simplified — set only `preference`
 - Full — set `background`, `personality`, `style`, `goals`
 - Adversarial — set `strategy`; selected when `--adversarial` flag is used
+
+### Interview / matching scenarios
+
+Set `mode: interview` to study a two-sided match instead of preference drift. The
+conversation is an interview between a **worker** (`persona_a`) and a **firm
+interviewer** (`persona_b`); at the end, **each agent independently decides whether
+it wants to match**. A match is mutual and binary — it happens only if *both* choose
+to match (as in deferred-acceptance matching markets). No survey is administered.
+
+Private information falls out naturally: each persona only sees its own system
+prompt, so any skills, criteria, or constraints you put in one persona's
+`background`/`goals` are hidden from the other and must be surfaced during the
+interview. Each side's decision hinges on what actually came out in conversation.
+
+```yaml
+name: my-interview
+mode: interview
+
+persona_a:                 # the worker / candidate (sends the opening message)
+  name: Jordan
+  background: "...skills + PRIVATE constraints the interviewer doesn't know..."
+  goals: "what you need in order to say yes"
+
+persona_b:                 # the firm interviewer / hiring manager
+  name: Riley
+  background: "...role + PRIVATE criteria the candidate doesn't know..."
+  goals: "what makes this candidate a match for you"
+
+# Optional — overrides the default role/match wording (see simulator/decision.py)
+decision:
+  worker_role: "the candidate interviewing for the role"
+  firm_role: "the hiring manager evaluating this candidate"
+  worker_match_meaning: "you would accept an offer to join this firm"
+  firm_match_meaning: "you would extend an offer to hire this candidate"
+
+initial_message: "Opening line from the worker..."
+```
+
+Run it like any scenario; the summary reports match rates instead of survey drift:
+
+```bash
+python run.py --scenario interview-swe --num-experiments 10 --num-turns 6 --verbose
+```
+
+Each result carries a `decision` object with the `worker_decision`, `firm_decision`
+(each `wants_match` + `reasoning`), and the `mutual_match` outcome. The batch summary
+reports `worker_match_rate`, `firm_match_rate`, `mutual_match_rate`, and
+`agreement_rate`. `interview-swe` ships as a worked example.
 
 ### Providers
 

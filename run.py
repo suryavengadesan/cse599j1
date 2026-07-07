@@ -210,12 +210,24 @@ def main() -> int:
     print(f"\nResults written to: {output_path}")
 
     # Print a brief summary
-    sc = summary.get("survey_changes", {})
-    changed = sc.get("changed_answers", {})
     print(f"\nSummary: {summary['num_experiments']} experiments")
-    if changed:
-        print(f"  Mean changed answers per run: {changed.get('mean', 0):.2f}")
-        print(f"  Median: {changed.get('median', 0):.2f}  Stdev: {changed.get('stdev', 0):.2f}")
+
+    if "match_decisions" in summary:
+        md = summary["match_decisions"]
+
+        def _pct(x):
+            return "n/a" if x is None else f"{x * 100:.0f}%"
+
+        print(f"  Worker match rate: {_pct(md['worker_match_rate'])}")
+        print(f"  Firm match rate:   {_pct(md['firm_match_rate'])}")
+        print(f"  Mutual match rate: {_pct(md['mutual_match_rate'])}")
+        print(f"  Agreement rate:    {_pct(md['agreement_rate'])}")
+    else:
+        sc = summary.get("survey_changes", {})
+        changed = sc.get("changed_answers", {})
+        if changed:
+            print(f"  Mean changed answers per run: {changed.get('mean', 0):.2f}")
+            print(f"  Median: {changed.get('median', 0):.2f}  Stdev: {changed.get('stdev', 0):.2f}")
 
     return 0
 
