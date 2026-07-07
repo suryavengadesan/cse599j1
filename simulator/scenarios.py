@@ -57,8 +57,12 @@ class ScenarioConfig:
     name: str
     persona_a: Persona
     persona_b: Persona
-    survey: dict
     initial_message: str
+    # "survey" (default) → pre/post preference-drift survey on persona_a.
+    # "interview"        → no survey; both personas make a match decision at the end.
+    mode: str = "survey"
+    survey: Optional[dict] = None
+    decision: Optional[dict] = None    # interview role/match wording; see decision.py
     persona_a_adversarial: Optional[Persona] = None
     persona_b_adversarial: Optional[Persona] = None
 
@@ -100,8 +104,14 @@ def load_scenario(name: str, adversarial: bool = False) -> ScenarioConfig:
     with open(path, "r", encoding="utf-8") as fh:
         data = yaml.safe_load(fh)
 
-    # Validate required fields
-    for field in ("name", "persona_a", "persona_b", "survey", "initial_message"):
+    mode = data.get("mode", "survey")
+
+    # Validate required fields. ``survey`` is required only in survey mode;
+    # interview mode measures a match decision instead.
+    required = ["name", "persona_a", "persona_b", "initial_message"]
+    if mode == "survey":
+        required.append("survey")
+    for field in required:
         if field not in data or data[field] is None:
             raise ScenarioValidationError(name, field)
 
@@ -120,8 +130,10 @@ def load_scenario(name: str, adversarial: bool = False) -> ScenarioConfig:
         name=data["name"],
         persona_a=persona_a,
         persona_b=persona_b,
-        survey=data["survey"],
         initial_message=data["initial_message"],
+        mode=mode,
+        survey=data.get("survey"),
+        decision=data.get("decision"),
         persona_a_adversarial=persona_a_adv,
         persona_b_adversarial=persona_b_adv,
     )
